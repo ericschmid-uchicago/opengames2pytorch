@@ -104,7 +104,7 @@ pip install -e .
 ### Compiling an Open Game Engine Repository
 
 ```bash
-python compiler.py --url https://github.com/example/open-game-engine.git --output ./pytorch-oge
+python compiler.py --url [https://github.com/example/open-game-engine.git](https://github.com/CyberCat-Institute/open-game-engine/) --output ./pytorch_oge
 ```
 
 ### Example Game Implementation
