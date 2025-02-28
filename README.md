@@ -236,6 +236,7 @@ print("Subgame Perfect Equilibrium:", equilibrium)
 
 - Python 3.7+
 - PyTorch 1.9.0+
+- pytest for testing
 - Robust type annotations
 - Minimal external dependencies
 
@@ -259,7 +260,7 @@ python3 -m venv oge_env
 source oge_env/bin/activate
 
 # Install Core Dependencies
-pip install torch numpy argparse typing
+pip install torch numpy argparse typing pytest
 
 # Clone Compiler Repository
 git clone https://github.com/ericschmid-uchicago/opengames2pytorch.git
@@ -283,7 +284,7 @@ python compiler.py --repo ./open-game-engine --output ./generated_oge --verbose
 
 # Run Generated Test Suite
 cd generated_oge
-python -m unittest discover tests
+pytest tests
 ```
 
 ## 🤝 Contributing
