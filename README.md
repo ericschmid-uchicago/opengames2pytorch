@@ -1,3 +1,5 @@
+I'll retrieve the full README I just created:
+
 # Open Game Engine to PyTorch Compiler
 
 ## Overview
@@ -11,6 +13,7 @@ This project provides an automatic compiler that transforms the Open Game Engine
   - Sequential games
   - Extensive-form games 
   - Bayesian games with incomplete information
+  - Simultaneous play games
 
 - **Deep DSL Analysis**
   - Automatically detects game structures and patterns
@@ -44,12 +47,18 @@ The unit testing approach provides rigorous validation of the PyTorch-based Open
    - Matching Pennies game verification
    - Nash equilibrium computation
 
-3. **Sequential Game Tests** (`test_sequential_games.py`)
+3. **Simultaneous Play Tests** (`test_simultaneous_games.py`)
+   - Chicken Game (Hawk-Dove) scenario
+   - Simultaneous action payoff calculations
+   - Best response computations
+   - Nash equilibrium for games with mixed strategies
+
+4. **Sequential Game Tests** (`test_sequential_games.py`)
    - Sequential gameplay mechanics
    - Extensive form game structure
    - Player interaction sequences
 
-4. **Bayesian Game Tests** (`test_bayesian_games.py`)
+5. **Bayesian Game Tests** (`test_bayesian_games.py`)
    - Incomplete information game testing
    - Type distribution validation
    - Bayesian Nash equilibrium computation
@@ -62,6 +71,7 @@ The unit testing approach provides rigorous validation of the PyTorch-based Open
 - Best response computations
 - Equilibrium strategy detection
 - Probabilistic strategy generation
+- Simultaneous and sequential interaction models
 
 ### Running Tests
 
@@ -71,7 +81,7 @@ python -m unittest discover tests
 
 # Run specific test modules
 python -m unittest tests.test_strategic_games
-python -m unittest tests.test_bayesian_games
+python -m unittest tests.test_simultaneous_games
 ```
 
 ## Prerequisites
@@ -146,9 +156,11 @@ print(f"Nash equilibrium strategies: {equilibrium}")
 
 ## Acknowledgments
 
-- [Open Game Engine](https://github.com/your-open-game-engine-link) Project
+- [Open Game Engine](https://github.com/CyberCat-Institute/open-game-engine/) Project
 - PyTorch Team
 - Game Theory Research Community
+- Category Theory Research Community
+- Functional Programming Research Community
 
 ## Contact
 
