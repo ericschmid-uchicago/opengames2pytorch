@@ -1,5 +1,3 @@
-I'll retrieve the full README I just created:
-
 # Open Game Engine to PyTorch Compiler
 
 ## Overview
