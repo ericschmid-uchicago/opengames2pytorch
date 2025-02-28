@@ -1783,7 +1783,7 @@ class PyTorchDSLGenerator:
     
     def _generate_ten_three_player_game_tests(self) -> str:
         """Generate tests for 10 different 3-player games to test composition scalability."""
-        test_code = textwrap.dedent('''
+        return textwrap.dedent('''
             import unittest
             import torch
             import torch.nn as nn
