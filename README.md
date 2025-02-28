@@ -92,7 +92,7 @@ python -m unittest tests.test_simultaneous_games
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/opengames2pytorch.git
+git clone https://github.com/ericschmid-uchicago/opengames2pytorch.git
 cd opengames2pytorch
 
 # Install the package
