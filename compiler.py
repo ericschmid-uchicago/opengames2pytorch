@@ -1694,6 +1694,8 @@ class PyTorchDSLGenerator:
         
         # Basic tests for core functionality
         tests["test_core"] = self._generate_core_tests()
+
+        tests["test_simultaneous_games"] = self._generate_simultaneous_game_tests()
         
         # Game-specific tests
         tests["test_strategic_games"] = self._generate_strategic_game_tests()
@@ -2018,6 +2020,101 @@ class PyTorchDSLGenerator:
             if __name__ == "__main__":
                 unittest.main()
         ''')
+    
+    def _generate_simultaneous_game_tests(self) -> str:
+        return textwrap.dedent('''
+            import unittest
+            import torch
+            from pytorch_oge.game import StrategicGame, create_strategic_game
+
+            class TestSimultaneousPlay(unittest.TestCase):
+                def setUp(self):
+                    """
+                    Set up a classic simultaneous play game scenario:
+                    Chicken Game (also known as Hawk-Dove game)
+                    """
+                    # Player 1's payoff matrix
+                    self.player1_payoffs = [
+                        [-1, 3],   # Player 1 Hawk: [Player 2 Hawk, Player 2 Dove]
+                        [0, 1]     # Player 1 Dove: [Player 2 Hawk, Player 2 Dove]
+                    ]
+                    
+                    # Player 2's payoff matrix
+                    self.player2_payoffs = [
+                        [-1, 0],   # Player 2 Hawk: [Player 1 Hawk, Player 1 Dove]
+                        [3, 1]     # Player 2 Dove: [Player 1 Hawk, Player 1 Dove]
+                    ]
+                    
+                    # Convert to tensors
+                    self.payoff_tensors = [
+                        torch.tensor(self.player1_payoffs, dtype=torch.float32),
+                        torch.tensor(self.player2_payoffs, dtype=torch.float32)
+                    ]
+                    
+                    # Create the game
+                    self.game = StrategicGame(2, [2, 2], self.payoff_tensors)
+
+                def test_simultaneous_play_payoffs(self):
+                    """
+                    Test payoff calculations for different simultaneous action profiles
+                    """
+                    # Both choose Hawk (aggressive strategy)
+                    actions_hawk_hawk = [torch.tensor(0), torch.tensor(0)]
+                    payoffs_hawk_hawk = self.game(actions_hawk_hawk)
+                    
+                    # Verify payoffs when both choose Hawk
+                    self.assertEqual(payoffs_hawk_hawk[0].item(), -1, "Player 1 should get -1 when both choose Hawk")
+                    self.assertEqual(payoffs_hawk_hawk[1].item(), -1, "Player 2 should get -1 when both choose Hawk")
+                    
+                    # Player 1 Hawk, Player 2 Dove
+                    actions_hawk_dove = [torch.tensor(0), torch.tensor(1)]
+                    payoffs_hawk_dove = self.game(actions_hawk_dove)
+                    
+                    # Verify payoffs for asymmetric Hawk-Dove scenario
+                    self.assertEqual(payoffs_hawk_dove[0].item(), 3, "Player 1 should get 3 when Hawk against Dove")
+                    self.assertEqual(payoffs_hawk_dove[1].item(), 0, "Player 2 should get 0 when Dove against Hawk")
+                    
+                    # Both choose Dove (cooperative strategy)
+                    actions_dove_dove = [torch.tensor(1), torch.tensor(1)]
+                    payoffs_dove_dove = self.game(actions_dove_dove)
+                    
+                    # Verify payoffs when both choose Dove
+                    self.assertEqual(payoffs_dove_dove[0].item(), 1, "Player 1 should get 1 when both choose Dove")
+                    self.assertEqual(payoffs_dove_dove[1].item(), 1, "Player 2 should get 1 when both choose Dove")
+
+                def test_best_responses(self):
+                    """
+                    Test best response calculations for the Chicken Game
+                    """
+                    # Best response when opponent chooses Hawk
+                    p1_br_to_hawk = self.game.best_response(0, [None, torch.tensor(0)])
+                    p2_br_to_hawk = self.game.best_response(1, [torch.tensor(0), None])
+                    
+                    # Best response when opponent chooses Dove
+                    p1_br_to_dove = self.game.best_response(0, [None, torch.tensor(1)])
+                    p2_br_to_dove = self.game.best_response(1, [torch.tensor(1), None])
+                    
+                    # Verify best responses
+                    self.assertIn(p1_br_to_hawk.item(), [0, 1], "Player 1 best response to Hawk should be Hawk or Dove")
+                    self.assertIn(p2_br_to_hawk.item(), [0, 1], "Player 2 best response to Hawk should be Hawk or Dove")
+                    self.assertIn(p1_br_to_dove.item(), [0, 1], "Player 1 best response to Dove should be Hawk or Dove")
+                    self.assertIn(p2_br_to_dove.item(), [0, 1], "Player 2 best response to Dove should be Hawk or Dove")
+
+                def test_nash_equilibrium(self):
+                    """
+                    Test Nash equilibrium computation for the Chicken Game
+                    """
+                    strategies = self.game.nash_equilibrium(iterations=1000)
+                    
+                    # Verify that strategies are mixed (probability between 0 and 1)
+                    for strategy in strategies:
+                        self.assertEqual(strategy.shape, torch.Size([2]))
+                        self.assertTrue((strategy >= 0).all() and (strategy <= 1).all())
+                        self.assertAlmostEqual(strategy.sum().item(), 1.0, places=6)
+
+            if __name__ == "__main__":
+                unittest.main()          
+         ''')
     
     def _generate_sequential_game_tests(self) -> str:
         """Generate tests for sequential games."""
