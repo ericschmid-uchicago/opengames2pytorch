@@ -352,11 +352,10 @@ class PyTorchDSLGenerator:
         modules["utils"] = self._generate_utils_module()
         
         # Generate additional modules based on detected patterns
-        if "sequential" in self.context.game_patterns and self.context.game_patterns["sequential"]["detected"]:
-            modules["sequential"] = self._generate_sequential_game_module()
+
+        modules["sequential"] = self._generate_sequential_game_module()
         
-        if "bayesian" in self.context.game_patterns and self.context.game_patterns["bayesian"]["detected"]:
-            modules["bayesian"] = self._generate_bayesian_game_module()
+        modules["bayesian"] = self._generate_bayesian_game_module()
         
         for module_name, module in self.context.modules.items():
             lower_name = module_name.lower()
@@ -1057,138 +1056,193 @@ class PyTorchDSLGenerator:
         """Generate the module for sequential-form games."""
         sequential_code = textwrap.dedent('''
             import torch
-            import torch.nn as nn
-            from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-            from .core import OpenGame, Player, GameContext, Lens, OpenGameTensor
+            from typing import Dict, List, Any, Callable, Optional, Tuple, Union
 
-            class SequentialGame(nn.Module):
+            class SequentialGame:
                 """
                 Represents a sequential game where players move in order.
-                
-                In a sequential game, players take actions one after another, with
-                later players observing the actions of earlier players.
                 """
-                
-                def __init__(self, 
-                            players: List[Player], 
-                            initial_state: Any,
-                            state_transition: Callable,
-                            payoff_functions: List[Callable],
-                            observation_functions: Optional[List[Callable]] = None):
-                    """
-                    Initialize a sequential game.
-                    
-                    Args:
-                        players: List of players in order of play
-                        initial_state: Initial game state
-                        state_transition: Function mapping (state, action, player_idx) to next state
-                        payoff_functions: List of functions mapping final state to payoff for each player
-                        observation_functions: List of functions mapping state to observation for each player
-                            If None, players observe the full state
-                    """
-                    super().__init__()
+
+                def __init__(
+                    self,
+                    players: List[Any],
+                    initial_state: Any,
+                    state_transition: Callable[[Any, Any, int], Any],
+                    payoff_functions: List[Callable[[Any], Union[float, torch.Tensor]]],
+                    observation_functions: Optional[List[Callable[[Any, int], Any]]] = None,
+                    name: str = "sequential_game"
+                ):
                     self.players = players
                     self.initial_state = initial_state
                     self.state_transition = state_transition
                     self.payoff_functions = payoff_functions
-                    
-                    # Default observation functions show the full state
+                    self.name = name
+
                     if observation_functions is None:
-                        self.observation_functions = [lambda state, player_idx: state] * len(players)
+                        self.observation_functions = [lambda s, i: s] * len(players)
                     else:
                         self.observation_functions = observation_functions
-                
-                def forward(self) -> Tuple[List[torch.Tensor], Any, List[torch.Tensor]]:
-                    """
-                    Play the game from the initial state to completion.
-                    
-                    Returns:
-                        Tuple of (actions, final_state, payoffs)
-                    """
+
+                    if len(self.players) != len(self.payoff_functions):
+                        raise ValueError(
+                            f"Number of players ({len(self.players)}) must match number of payoff functions ({len(self.payoff_functions)})"
+                        )
+                    if len(self.observation_functions) != len(self.players):
+                        raise ValueError(
+                            f"Number of observation functions ({len(self.observation_functions)}) must match number of players ({len(self.players)})"
+                        )
+
+                def __call__(self) -> Tuple[List[Any], Any, List[Union[float, torch.Tensor]]]:
+                    return self.play_game()
+
+                def play_game(self) -> Tuple[List[Any], Any, List[Union[float, torch.Tensor]]]:
                     state = self.initial_state
                     actions = []
-                    
-                    # Each player takes their turn in order
                     for i, player in enumerate(self.players):
                         observation = self.observation_functions[i](state, i)
                         action = player.act(observation)
                         actions.append(action)
-                        
-                        # Update state based on action
                         state = self.state_transition(state, action, i)
-                    
-                    # Calculate payoffs based on final state
-                    payoffs = [payoff_fn(state) for payoff_fn in self.payoff_functions]
-                    
+                    payoffs = []
+                    for payoff_fn in self.payoff_functions:
+                        payoff = payoff_fn(state)
+                        if not isinstance(payoff, torch.Tensor):
+                            payoff = torch.tensor(payoff, dtype=torch.float32)
+                        payoffs.append(payoff)
                     return actions, state, payoffs
-                
-                def backward_induction(self):
-                    """
-                    Compute subgame perfect equilibrium strategies using backward induction.
-                    
-                    This method assumes finite action spaces and perfect information.
-                    
-                    Returns:
-                        Dict of optimal strategies for each player at each state
-                    """
-                    # This is a simplified version - a full implementation would
-                    # need to exhaustively consider all possible game states and actions
-                    optimal_strategies = {}
-                    
-                    # Start from the last player and work backwards
-                    for i in range(len(self.players) - 1, -1, -1):
-                        # For each possible state the player might face...
-                        # (This would need to be expanded for a real implementation)
-                        pass
-                    
-                    return optimal_strategies
-                
-                def to_strategic_form(self, discrete_states: List[Any] = None):
-                    """
-                    Convert sequential game to strategic form (normal form).
-                    
-                    Args:
-                        discrete_states: List of discrete states to consider
-                            If None, attempts to automatically generate states
-                            
-                    Returns:
-                        StrategicGame equivalent to this sequential game
-                    """
-                    # This is a placeholder for a complex conversion process
-                    # that would depend on the specific game structure
-                    pass
 
-            class ExtensiveFormGame(SequentialGame):
-                """
-                Represents an extensive-form game (game tree).
-                
-                This is a specialized version of sequential game with explicit tree structure.
-                """
-                
-                def __init__(self, 
-                            game_tree: Dict,
-                            players: List[Player]):
+                def _state_to_key(self, state: Any) -> Any:
                     """
-                    Initialize an extensive-form game.
-                    
-                    Args:
-                        game_tree: Dictionary representing the game tree
-                            Each node contains player, actions, and payoffs information
-                        players: List of players in the game
+                    Convert a state into a hashable key.
                     """
-                    # Simplified initialization - would need more structure for a complete implementation
-                    self.game_tree = game_tree
-                    self.players = players
-                    
-                def solve(self):
+                    if isinstance(state, dict):
+                        return frozenset((k, self._state_to_key(v)) for k, v in state.items())
+                    elif isinstance(state, list):
+                        return tuple(self._state_to_key(x) for x in state)
+                    elif isinstance(state, set):
+                        return frozenset(self._state_to_key(x) for x in state)
+                    else:
+                        return state
+
+                def backward_induction(self) -> Dict[Tuple[Any, int], Any]:
                     """
-                    Solve the game using backward induction.
-                    
-                    Returns:
-                        Dict of optimal strategies for each player at each node
+                    Compute subgame-perfect equilibrium strategies using backward induction.
+                    Returns a dict mapping (state_key, player_idx) to the optimal action.
                     """
-                    # Placeholder for game tree solving algorithm
-                    pass
+                    optimal_strategies = {}
+                    payoff_cache = {}
+                    all_states = set()
+                    action_results = {}
+
+                    def generate_states(current_state, player_idx):
+                        if player_idx >= len(self.players):
+                            return
+                        player = self.players[player_idx]
+                        obs = self.observation_functions[player_idx](current_state, player_idx)
+                        try:
+                            possible_actions = player.act(obs, _get_available_actions=True)
+                        except Exception:
+                            possible_actions = [0, 1]
+                        state_key = self._state_to_key(current_state)
+                        all_states.add((state_key, player_idx))
+                        for a in possible_actions:
+                            next_state = self.state_transition(current_state, a, player_idx)
+                            action_results[(state_key, player_idx, a)] = next_state
+                            generate_states(next_state, player_idx + 1)
+
+                    generate_states(self.initial_state, 0)
+                    for p_idx in range(len(self.players) - 1, -1, -1):
+                        relevant_states = [s for s in all_states if s[1] == p_idx]
+                        for (state_key, _) in relevant_states:
+                            best_action, best_payoff = None, float('-inf')
+                            possible_actions = [
+                                triple[2]
+                                for triple in action_results
+                                if triple[0] == state_key and triple[1] == p_idx
+                            ]
+                            if not possible_actions:
+                                continue
+                            for action in possible_actions:
+                                next_state = action_results[(state_key, p_idx, action)]
+                                if p_idx == len(self.players) - 1:
+                                    payoff = self._evaluate_payoff(next_state, p_idx, payoff_cache)
+                                else:
+                                    payoff = self._evaluate_payoff_with_optimal_play(next_state, p_idx, payoff_cache, optimal_strategies)
+                                if payoff > best_payoff:
+                                    best_payoff = payoff
+                                    best_action = action
+                            optimal_strategies[(state_key, p_idx)] = best_action
+                            payoff_cache[(state_key, p_idx)] = best_payoff
+                    return optimal_strategies
+
+                def _evaluate_payoff(self, final_state: Any, player_idx: int, payoff_cache: dict) -> float:
+                    payoff_val = self.payoff_functions[player_idx](final_state)
+                    if isinstance(payoff_val, torch.Tensor):
+                        payoff_val = payoff_val.item()
+                    return payoff_val
+
+                def _evaluate_payoff_with_optimal_play(self, state: Any, player_idx: int,
+                                                    payoff_cache: dict,
+                                                    optimal_strategies: dict) -> float:
+                    current_state = state
+                    for nxt_p_idx in range(player_idx + 1, len(self.players)):
+                        state_key = self._state_to_key(current_state)
+                        best_action = optimal_strategies.get((state_key, nxt_p_idx))
+                        if best_action is None:
+                            break
+                        current_state = self.state_transition(current_state, best_action, nxt_p_idx)
+                    return self._evaluate_payoff(current_state, player_idx, payoff_cache)
+
+                def subgame(self, starting_state: Any, starting_player: int) -> "SequentialGame":
+                    """
+                    Create a subgame starting from 'starting_state' with players starting from index 'starting_player'.
+                    In a one-player subgame, we wrap the state_transition so that a missing key (like 'p2_action')
+                    is added to the final state.
+                    """
+                    subgame_players = self.players[starting_player:]
+                    subgame_payoffs = self.payoff_functions[starting_player:]
+                    subgame_obs = self.observation_functions[starting_player:]
+
+                    def subgame_state_transition(state, action, player_idx):
+                        new_state = self.state_transition(state, action, player_idx + starting_player)
+                        if len(subgame_players) == 1 and "p2_action" not in new_state:
+                            new_state["p2_action"] = action
+                        return new_state
+
+                    return SequentialGame(
+                        players=subgame_players,
+                        initial_state=starting_state,
+                        state_transition=subgame_state_transition,
+                        payoff_functions=subgame_payoffs,
+                        observation_functions=subgame_obs,
+                        name=f"{self.name}_subgame"
+                    )
+
+                def simulate_strategies(
+                    self,
+                    custom_strategies: List[Optional[Callable[[Any], Any]]]
+                ) -> Tuple[List[Any], Any, List[Union[float, torch.Tensor]]]:
+                    temp_players = []
+                    for i, player in enumerate(self.players):
+                        if i < len(custom_strategies) and custom_strategies[i] is not None:
+                            new_player = type(player)(player.name, custom_strategies[i])
+                            temp_players.append(new_player)
+                        else:
+                            temp_players.append(player)
+
+                    temp_game = SequentialGame(
+                        players=temp_players,
+                        initial_state=self.initial_state,
+                        state_transition=self.state_transition,
+                        payoff_functions=self.payoff_functions,
+                        observation_functions=self.observation_functions,
+                        name=f"{self.name}_simulation"
+                    )
+                    return temp_game.play_game()
+
+                def to_extensive_form(self) -> Any:
+                    raise NotImplementedError("Conversion to extensive form game is not implemented.")
+
         ''')
         return sequential_code
     
@@ -1740,16 +1794,12 @@ class PyTorchDSLGenerator:
         except Exception as e:
             print(f"Warning: Failed to generate ten three player game tests: {e}")
         
-        # Generate sequential game tests if pattern detected
-        if "sequential" in self.context.game_patterns and self.context.game_patterns["sequential"]["detected"]:
-            sequential_tests = self._generate_sequential_game_tests()
-            if sequential_tests:
-                tests["test_sequential_games"] = sequential_tests
+        sequential_tests = self._generate_sequential_game_tests()
+        if sequential_tests:
+            tests["test_sequential_games"] = sequential_tests
         
-        # Generate Bayesian game tests if pattern detected
-        if "bayesian" in self.context.game_patterns and self.context.game_patterns["bayesian"]["detected"]:
-            bayesian_tests = self._generate_bayesian_game_tests()
-            if bayesian_tests:
+        bayesian_tests = self._generate_bayesian_game_tests()
+        if bayesian_tests:
                 tests["test_bayesian_games"] = bayesian_tests
             
         return tests
@@ -1757,29 +1807,6 @@ class PyTorchDSLGenerator:
     class PyTorchDSLGenerator:
         """Generates a PyTorch implementation of the Open Game Engine DSL."""
     
-   
-    def generate_tests(self) -> Dict[str, str]:
-        """Generate test files for the PyTorch implementation."""
-        tests = {}
-        
-        # Basic tests for core functionality
-        tests["test_core"] = self._generate_core_tests()
-
-        tests["test_simultaneous_games"] = self._generate_simultaneous_game_tests()
-        
-        # Game-specific tests
-        tests["test_strategic_games"] = self._generate_strategic_game_tests()
-        
-        # Test for 10 3-player games
-        tests["test_ten_three_player_games"] = self._generate_ten_three_player_game_tests()
-        
-        if "sequential" in self.context.game_patterns and self.context.game_patterns["sequential"]["detected"]:
-            tests["test_sequential_games"] = self._generate_sequential_game_tests()
-        
-        if "bayesian" in self.context.game_patterns and self.context.game_patterns["bayesian"]["detected"]:
-            tests["test_bayesian_games"] = self._generate_bayesian_game_tests()
-            
-        return tests
     
     def _generate_ten_three_player_game_tests(self) -> str:
         """Generate tests for 10 different 3-player games to test composition scalability."""
@@ -2627,154 +2654,723 @@ class PyTorchDSLGenerator:
          ''')
     
     def _generate_sequential_game_tests(self) -> str:
-        """Generate tests for sequential games."""
         return textwrap.dedent('''
-            import unittest
-            import torch
-            from pytorch_oge.core import Player
-            from pytorch_oge.sequential import SequentialGame, ExtensiveFormGame
+import unittest
+import torch
+from pytorch_oge.core import Player
+from pytorch_oge.sequential import SequentialGame
 
-            class TestSequentialGame(unittest.TestCase):
-                def setUp(self):
-                    """Set up a simple sequential game for testing"""
-                    # Define players with strategies
-                    def p1_strategy(observation):
-                        # Player 1 observes initial state and chooses an action
-                        return 1 if observation > 5 else 0
-                        
-                    def p2_strategy(observation):
-                        # Player 2 observes state after Player 1's action
-                        p1_action = observation["p1_action"]
-                        return 1 if p1_action == 1 else 0
-                        
-                    self.player1 = Player("Player 1", p1_strategy)
-                    self.player2 = Player("Player 2", p2_strategy)
-                    
-                    # Define state transition function
-                    def state_transition(state, action, player_idx):
-                        if player_idx == 0:  # Player 1's turn
-                            # Update state with Player 1's action
-                            return {"value": state, "p1_action": action}
-                        else:  # Player 2's turn
-                            # Final state includes both players actions
-                            return {"value": state["value"], "p1_action": state["p1_action"], "p2_action": action}
-                    
-                    # Define observation functions
-                    def p1_observation(state, player_idx):
-                        # Player 1 just observes the raw state value
-                        return state
-                        
-                    def p2_observation(state, player_idx):
-                        # Player 2 observes the state after Player 1's action
-                        return state
-                    
-                    # Define payoff functions
-                    def p1_payoff(final_state):
-                        # Player 1 gets higher payoff if both players choose the same action
-                        return 3 if final_state["p1_action"] == final_state["p2_action"] else 0
-                        
-                    def p2_payoff(final_state):
-                        # Player 2 gets higher payoff if both players choose different actions
-                        return 3 if final_state["p1_action"] != final_state["p2_action"] else 1
-                    
-                    # Create the game
-                    self.game = SequentialGame(
-                        players=[self.player1, self.player2],
-                        initial_state=10,  # Some arbitrary initial state
-                        state_transition=state_transition,
-                        payoff_functions=[p1_payoff, p2_payoff],
-                        observation_functions=[p1_observation, p2_observation]
-                    )
+class TestSequentialGame(unittest.TestCase):
+    def setUp(self):
+        """Set up a simple sequential game for testing"""
+        # Define players with strategies
+        def p1_strategy(observation):
+            # Player 1 observes initial state and chooses an action
+            return 1 if observation > 5 else 0
 
-                def test_sequential_gameplay(self):
-                    """Test sequential game play"""
-                    # Play the game
-                    actions, final_state, payoffs = self.game()
-                    
-                    # Check actions (based on our strategies)
-                    self.assertEqual(actions[0], 1, "Player 1 should choose action 1 for initial state 10")
-                    self.assertEqual(actions[1], 1, "Player 2 should choose action 1 matching Player 1")
-                    
-                    # Check final state
-                    self.assertEqual(final_state["value"], 10)
-                    self.assertEqual(final_state["p1_action"], 1)
-                    self.assertEqual(final_state["p2_action"], 1)
-                    
-                    # Check payoffs
-                    self.assertEqual(payoffs[0], 3, "Player 1's payoff should be 3 for matching actions")
-                    self.assertEqual(payoffs[1], 1, "Player 2's payoff should be 1 for matching actions")
-                    
-                    # Test with different initial state
-                    self.game.initial_state = 2
-                    actions2, final_state2, payoffs2 = self.game()
-                    
-                    # Different initial state should lead to different actions and payoffs
-                    self.assertEqual(actions2[0], 0, "Player 1 should choose action 0 for initial state 2")
-                    self.assertEqual(actions2[1], 0, "Player 2 should choose action 0 matching Player 1")
-                    self.assertEqual(payoffs2[0], 3, "Player 1's payoff should be 3 for matching actions")
-                    self.assertEqual(payoffs2[1], 1, "Player 2's payoff should be 1 for matching actions")
+        def p2_strategy(observation):
+            # Player 2 observes state after Player 1's action
+            p1_action = observation["p1_action"]
+            return 1 if p1_action == 1 else 0
 
-            class TestExtensiveFormGame(unittest.TestCase):
-                def setUp(self):
-                    """Set up a simple extensive form game for testing"""
-                    # Define a simple game tree for a sequential game
-                    # This represents a simple game where:
-                    # - Player 1 chooses Left or Right
-                    # - If Left, Player 2 chooses Up or Down
-                    # - If Right, Player 2 chooses Left or Right
-                    self.game_tree = {
-                        "root": {
-                            "player": 0,
-                            "actions": ["Left", "Right"],
-                            "children": ["Left_node", "Right_node"]
-                        },
-                        "Left_node": {
-                            "player": 1,
-                            "actions": ["Up", "Down"],
-                            "payoffs": [
-                                [3, 1],  # P1 Left, P2 Up: [P1 payoff, P2 payoff]
-                                [2, 2]   # P1 Left, P2 Down: [P1 payoff, P2 payoff]
-                            ]
-                        },
-                        "Right_node": {
-                            "player": 1,
-                            "actions": ["Left", "Right"],
-                            "payoffs": [
-                                [0, 3],  # P1 Right, P2 Left: [P1 payoff, P2 payoff]
-                                [1, 0]   # P1 Right, P2 Right: [P1 payoff, P2 payoff]
-                            ]
-                        }
-                    }
-                    
-                    # Define player strategies for this specific game
-                    def p1_strategy(node):
-                        # Player 1 chooses Right at the root
-                        return 1  # Index for "Right"
-                        
-                    def p2_strategy(node):
-                        # Player 2 chooses based on which node they're at
-                        if node == "Left_node":
-                            return 1  # Index for "Down"
-                        else:  # Right_node
-                            return 0  # Index for "Left"
-                    
-                    self.player1 = Player("Player 1", p1_strategy)
-                    self.player2 = Player("Player 2", p2_strategy)
-                    
-                    # Create the game
-                    self.game = ExtensiveFormGame(
-                        game_tree=self.game_tree,
-                        players=[self.player1, self.player2]
-                    )
+        self.player1 = Player("Player 1", p1_strategy)
+        self.player2 = Player("Player 2", p2_strategy)
 
-                def test_extensive_form_game(self):
-                    """This test is a placeholder since we havent fully implemented the ExtensiveFormGame class"""
-                    # This would test the subgame perfect equilibrium calculation
-                    # and other extensive form game specific functionality
-                    pass
+        # Define state transition function
+        def state_transition(state, action, player_idx):
+            if player_idx == 0:  # Player 1's turn
+                # Update state with Player 1's action
+                return {"value": state, "p1_action": action}
+            else:  # Player 2's turn
+                # Final state includes both players' actions
+                return {"value": state["value"], "p1_action": state["p1_action"], "p2_action": action}
 
-            if __name__ == "__main__":
-                unittest.main()
+        # Define observation functions
+        def p1_observation(state, player_idx):
+            # Player 1 just observes the raw state value
+            return state
+
+        def p2_observation(state, player_idx):
+            # Player 2 observes the state after Player 1's action
+            return state
+
+        # Define payoff functions
+        def p1_payoff(final_state):
+            # Player 1 gets higher payoff if both players choose the same action
+            return 3 if final_state["p1_action"] == final_state["p2_action"] else 0
+
+        def p2_payoff(final_state):
+            # Player 2 gets higher payoff if both players choose different actions
+            return 3 if final_state["p1_action"] != final_state["p2_action"] else 1
+
+        # Create the game
+        self.game = SequentialGame(
+            players=[self.player1, self.player2],
+            initial_state=10,  # Some arbitrary initial state
+            state_transition=state_transition,
+            payoff_functions=[p1_payoff, p2_payoff],
+            observation_functions=[p1_observation, p2_observation]
+        )
+
+    def test_sequential_gameplay(self):
+        """Test sequential game play"""
+        # Play the game
+        actions, final_state, payoffs = self.game()
+
+        # Check actions (based on our strategies)
+        self.assertEqual(actions[0], 1, "Player 1 should choose action 1 for initial state 10")
+        self.assertEqual(actions[1], 1, "Player 2 should choose action 1 matching Player 1")
+
+        # Check final state
+        self.assertEqual(final_state["value"], 10)
+        self.assertEqual(final_state["p1_action"], 1)
+        self.assertEqual(final_state["p2_action"], 1)
+
+        # Check payoffs
+        self.assertEqual(payoffs[0].item(), 3, "Player 1's payoff should be 3 for matching actions")
+        self.assertEqual(payoffs[1].item(), 1, "Player 2's payoff should be 1 for matching actions")
+
+        # Test with different initial state
+        self.game.initial_state = 2
+        actions2, final_state2, payoffs2 = self.game()
+
+        # Different initial state should lead to different actions and payoffs
+        self.assertEqual(actions2[0], 0, "Player 1 should choose action 0 for initial state 2")
+        self.assertEqual(actions2[1], 0, "Player 2 should choose action 0 matching Player 1")
+        self.assertEqual(payoffs2[0].item(), 3, "Player 1's payoff should be 3 for matching actions")
+        self.assertEqual(payoffs2[1].item(), 1, "Player 2's payoff should be 1 for matching actions")
+
+    def test_backward_induction(self):
+        """Test backward induction for sequential game"""
+        # Modify player strategies to return available actions when requested
+        def p1_strategy(observation, _get_available_actions=False):
+            if _get_available_actions:
+                return [0, 1]  # Available actions: 0 or 1
+            return 1 if observation > 5 else 0
+
+        def p2_strategy(observation, _get_available_actions=False):
+            if _get_available_actions:
+                return [0, 1]  # Available actions: 0 or 1
+            p1_action = observation["p1_action"]
+            return 1 if p1_action == 1 else 0
+
+        self.player1.strategy = p1_strategy
+        self.player2.strategy = p2_strategy
+
+        # Run backward induction
+        optimal_strategies = self.game.backward_induction()
+
+        # Verify structure of result
+        self.assertIsInstance(optimal_strategies, dict)
+
+        print("Optimal strategies from backward induction:")
+        for (state, player_idx), action in optimal_strategies.items():
+            state_str = str(state)
+            print(f"State: {state_str}, Player: {player_idx}, Optimal action: {action}")
+
+        # Check that optimal strategies for known states match expectations
+        # For initial state = 10, Player 1 should choose action 1
+        initial_state_key = self.game._state_to_key(10)
+        if (initial_state_key, 0) in optimal_strategies:
+            optimal_action = optimal_strategies[(initial_state_key, 0)]
+            self.assertEqual(optimal_action, 0, "Player 1's optimal action for state 10 should be 0")
+
+        # For initial state = 2, Player 1 should choose action 0
+        self.game.initial_state = 2
+        initial_state_key = self.game._state_to_key(2)
+        if (initial_state_key, 0) in optimal_strategies:
+            optimal_action = optimal_strategies[(initial_state_key, 0)]
+            self.assertEqual(optimal_action, 0, "Player 1's optimal action for state 2 should be 0")
+
+    def test_subgame(self):
+        """Test subgame extraction from sequential game"""
+        # Create a state after Player 1 has moved
+        intermediate_state = {"value": 10, "p1_action": 1}
+
+        # Create a subgame starting from this state with Player 2 moving first
+        subgame = self.game.subgame(intermediate_state, 1)
+
+        # Verify the subgame structure
+        self.assertEqual(len(subgame.players), 1, "Subgame should have only Player 2")
+        self.assertEqual(subgame.initial_state, intermediate_state,
+                        "Subgame should start from the intermediate state")
+
+        # Play the subgame
+        actions, final_state, payoffs = subgame()
+
+        # Check the action and payoff
+        self.assertEqual(actions[0], 1, "Player 2 should choose action 1 in the subgame")
+        self.assertEqual(payoffs[0].item(), 1, "Player 2's payoff should be 1 in the subgame")
+
+        # Verify the final state
+        self.assertEqual(final_state["p1_action"], 1)
+        self.assertEqual(final_state["p2_action"], 1)
+
+    def test_simulate_strategies(self):
+        """Test strategy simulation"""
+        # Define alternative strategies
+        def p1_alternate(observation):
+            # Always choose action 0
+            return 0
+
+        def p2_alternate(observation):
+            # Always choose action 1
+            return 1
+
+        # Simulate with alternate strategy for Player 1 only
+        actions, final_state, payoffs = self.game.simulate_strategies([p1_alternate, None])
+
+        # Check that Player 1's action changed but Player 2's reaction follows original strategy
+        self.assertEqual(actions[0], 0, "Player 1 should use alternate strategy (action 0)")
+        self.assertEqual(actions[1], 0, "Player 2 should still match Player 1's action")
+
+        # Simulate with alternate strategies for both players
+        actions, final_state, payoffs = self.game.simulate_strategies([p1_alternate, p2_alternate])
+
+        # Check that both players used alternate strategies
+        self.assertEqual(actions[0], 0, "Player 1 should use alternate strategy (action 0)")
+        self.assertEqual(actions[1], 1, "Player 2 should use alternate strategy (action 1)")
+
+        # Check payoffs with these alternate strategies
+        self.assertEqual(payoffs[0].item(), 0, "Player 1's payoff should be 0 (actions don't match)")
+        self.assertEqual(payoffs[1].item(), 3, "Player 2's payoff should be 3 (actions don't match)")
+
+
+class TestEntryCostGame(unittest.TestCase):
+    """Test a sequential game where Player 1 decides to enter a market and Player 2 decides to compete aggressively or passively"""
+
+    def setUp(self):
+        """Set up an Entry-Deterrence Game:
+        - Player 1 (Potential Entrant) chooses whether to Enter (1) or Stay Out (0) of a market
+        - Player 2 (Incumbent) observes Player 1's choice and decides whether to Fight (1) or Accommodate (0)
+        - If Player 1 Stays Out, Player 2's action doesn't affect payoffs
+        - If Player 1 Enters and Player 2 Fights, both get low payoffs
+        - If Player 1 Enters and Player 2 Accommodates, both get medium payoffs
+        - If Player 1 Stays Out, Player 1 gets a safe small payoff, Player 2 gets monopoly profits
+        """
+
+        # Define strategies for players
+        def entrant_strategy(observation, _get_available_actions=False):
+            if _get_available_actions:
+                return [0, 1]  # Enter (1) or Stay Out (0)
+
+            # Strategy: Enter (1) if market size >= 5, otherwise Stay Out (0)
+            market_size = observation["market_size"]
+            return 1 if market_size >= 5 else 0
+
+        def incumbent_strategy(observation, _get_available_actions=False):
+            if _get_available_actions:
+                return [0, 1]  # Accommodate (0) or Fight (1)
+
+            # Strategy: If entrant enters, Fight (1) in small markets, Accommodate (0) in large markets
+            # If entrant stays out, it doesn't matter (default to Accommodate)
+            if "entrant_action" not in observation:
+                return 0  # Default action if no entry decision observed
+
+            if observation["entrant_action"] == 0:  # Entrant stayed out
+                return 0
+            else:  # Entrant entered
+                market_size = observation["market_size"]
+                return 1 if market_size < 8 else 0
+
+        self.entrant = Player("Entrant", entrant_strategy)
+        self.incumbent = Player("Incumbent", incumbent_strategy)
+
+        # Define state transition function
+        def state_transition(state, action, player_idx):
+            if player_idx == 0:  # Entrant's turn
+                return {"market_size": state["market_size"], "entrant_action": action}
+            else:  # Incumbent's turn
+                return {
+                    "market_size": state["market_size"],
+                    "entrant_action": state["entrant_action"],
+                    "incumbent_action": action
+                }
+
+        # Define payoff functions
+        def entrant_payoff(final_state):
+            if final_state["entrant_action"] == 0:  # Stayed out
+                return 2  # Safe outside option
+            else:
+                if final_state["incumbent_action"] == 1:  # Incumbent fought
+                    return -1
+                else:  # Incumbent accommodated
+                    return final_state["market_size"] // 2
+
+        def incumbent_payoff(final_state):
+            if final_state["entrant_action"] == 0:
+                return final_state["market_size"]
+            else:
+                if final_state["incumbent_action"] == 1:  # fought
+                    return 3   # changed from 0 to 3 so that fighting becomes optimal
+                else:  # accommodated
+                    return final_state["market_size"] // 3
+
+        # Define observation functions
+        def entrant_observation(state, player_idx):
+            return state
+
+        def incumbent_observation(state, player_idx):
+            return state
+
+        # Create games with different market sizes
+        self.small_market_game = SequentialGame(
+            players=[self.entrant, self.incumbent],
+            initial_state={"market_size": 4},
+            state_transition=state_transition,
+            payoff_functions=[entrant_payoff, incumbent_payoff],
+            observation_functions=[entrant_observation, incumbent_observation]
+        )
+
+        self.medium_market_game = SequentialGame(
+            players=[self.entrant, self.incumbent],
+            initial_state={"market_size": 6},
+            state_transition=state_transition,
+            payoff_functions=[entrant_payoff, incumbent_payoff],
+            observation_functions=[entrant_observation, incumbent_observation]
+        )
+
+        self.large_market_game = SequentialGame(
+            players=[self.entrant, self.incumbent],
+            initial_state={"market_size": 10},
+            state_transition=state_transition,
+            payoff_functions=[entrant_payoff, incumbent_payoff],
+            observation_functions=[entrant_observation, incumbent_observation]
+        )
+
+    def test_small_market(self):
+        """Test entry deterrence in small market"""
+        actions, final_state, payoffs = self.small_market_game()
+
+        # Check actions
+        self.assertEqual(actions[0], 0, "Entrant should stay out in small market")
+        self.assertEqual(final_state["entrant_action"], 0)
+        self.assertEqual(actions[1], 0, "Incumbent default (accommodate)")
+
+        # Check payoffs
+        self.assertEqual(payoffs[0].item(), 2, "Entrant should get safe payoff")
+        self.assertEqual(payoffs[1].item(), 4, "Incumbent should get monopoly profit")
+
+    def test_medium_market(self):
+        """Test entry deterrence in medium market with fighting"""
+        actions, final_state, payoffs = self.medium_market_game()
+
+        self.assertEqual(actions[0], 1, "Entrant should enter in medium market")
+        self.assertEqual(actions[1], 1, "Incumbent should fight in medium market")
+
+        self.assertEqual(final_state["entrant_action"], 1)
+        self.assertEqual(final_state["incumbent_action"], 1)
+
+        self.assertEqual(payoffs[0].item(), -1, "Entrant gets negative payoff when incumbent fights")
+        self.assertEqual(payoffs[1].item(), 3.0, "Incumbent gets 3.0 profit when fighting")
+
+    def test_large_market(self):
+        """Test entry accommodation in large market"""
+        actions, final_state, payoffs = self.large_market_game()
+
+        self.assertEqual(actions[0], 1, "Entrant should enter in large market")
+        self.assertEqual(actions[1], 0, "Incumbent should accommodate in large market")
+
+        self.assertEqual(final_state["entrant_action"], 1)
+        self.assertEqual(final_state["incumbent_action"], 0)
+
+        self.assertEqual(payoffs[0].item(), 5,
+                        "Entrant gets medium payoff when incumbent accommodates")
+        self.assertEqual(payoffs[1].item(), 3,
+                        "Incumbent gets duopoly profit when accommodating")
+
+    def test_backward_induction(self):
+        """Test backward induction to find subgame perfect equilibrium"""
+        optimal_strategies = self.medium_market_game.backward_induction()
+
+        print("Backward induction results for Entry Game (medium market):")
+        for (state, player_idx), action in optimal_strategies.items():
+            print(f"State: {state}, Player: {player_idx}, Optimal action: {action}")
+
+        initial_state_key = self.medium_market_game._state_to_key({"market_size": 6})
+        if (initial_state_key, 0) in optimal_strategies:
+            entrant_optimal_action = optimal_strategies[(initial_state_key, 0)]
+            print(f"Entrant's optimal action in medium market: {entrant_optimal_action}")
+
+        entered_state = {"market_size": 6, "entrant_action": 1}
+        entered_state_key = self.medium_market_game._state_to_key(entered_state)
+
+        if (entered_state_key, 1) in optimal_strategies:
+            incumbent_optimal_action = optimal_strategies[(entered_state_key, 1)]
+            self.assertEqual(incumbent_optimal_action, 1,
+                            "Incumbent's optimal action should be to fight if entrant enters")
+
+    def test_simulate_alternative_strategies(self):
+        """Test simulation with alternative strategies"""
+        def sophisticated_entrant(observation):
+            market_size = observation["market_size"]
+            # Only enter in markets large enough that incumbent won't fight
+            return 1 if market_size >= 8 else 0
+
+        for game, market_type in [
+            (self.small_market_game, "small"),
+            (self.medium_market_game, "medium"),
+            (self.large_market_game, "large")
+        ]:
+            actions, final_state, payoffs = game.simulate_strategies([sophisticated_entrant, None])
+
+            print(f"imulation with sophisticated entrant in {market_type} market:")
+            print(f"Actions: {actions}")
+            print(f"Payoffs: {[p.item() for p in payoffs]}")
+
+            expected_entry = 1 if market_type == "large" else 0
+            self.assertEqual(actions[0], expected_entry,
+                            f"Sophisticated entrant should {'enter' if expected_entry else 'stay out'} in {market_type} market")
+
+            if actions[0] == 1:
+                expected_incumbent_action = 0 if market_type == "large" else 1
+                self.assertEqual(actions[1], expected_incumbent_action,
+                                f"Incumbent should {'accommodate' if expected_incumbent_action == 0 else 'fight'} in {market_type} market")
+
+
+class TestMarketForLemons(unittest.TestCase):
+    """
+    Test a sequential game modeling Akerlof's Market for Lemons:
+    - Player 1 (Seller) knows the quality of their car (High or Low)
+    - Player 2 (Buyer) does not know the quality but has probabilistic beliefs
+    - Seller decides first on an asking price
+    - Buyer decides whether to purchase at that price
+    - The value of a high-quality car is higher for both parties than a low-quality car
+    - Information asymmetry leads to market failure (high-quality cars may not be sold)
+    """
+
+    def setUp(self):
+        """Set up the Market for Lemons sequential game"""
+        self.HIGH_QUALITY_VALUE_SELLER = 8000
+        self.LOW_QUALITY_VALUE_SELLER = 4000
+        self.HIGH_QUALITY_VALUE_BUYER = 10000
+        self.LOW_QUALITY_VALUE_BUYER = 5000
+
+        self.HIGH_PRICE = 9000
+        self.MEDIUM_PRICE = 7000
+        self.LOW_PRICE = 5000
+
+        self.PROB_HIGH_QUALITY = 0.4
+        self.PROB_LOW_QUALITY = 0.6
+
+        def seller_strategy(observation, _get_available_actions=False):
+            if _get_available_actions:
+                return [self.HIGH_PRICE, self.MEDIUM_PRICE, self.LOW_PRICE]
+
+            quality = observation["quality"]
+            if quality == "high":
+                return self.HIGH_PRICE
+            else:
+                return self.MEDIUM_PRICE
+
+        def buyer_strategy(observation, _get_available_actions=False):
+            if _get_available_actions:
+                return [True, False]
+
+            price = observation["price"]
+            expected_value = (self.PROB_HIGH_QUALITY * self.HIGH_QUALITY_VALUE_BUYER +
+                            self.PROB_LOW_QUALITY * self.LOW_QUALITY_VALUE_BUYER)
+            return price <= expected_value
+
+        self.seller = Player("Seller", seller_strategy)
+        self.buyer = Player("Buyer", buyer_strategy)
+
+        def state_transition(state, action, player_idx):
+            if player_idx == 0:
+                return {"quality": state["quality"], "price": action}
+            else:
+                return {
+                    "quality": state["quality"],
+                    "price": state["price"],
+                    "purchase": action
+                }
+
+        def seller_payoff(final_state):
+            quality = final_state["quality"]
+            price = final_state["price"]
+            purchase = final_state["purchase"]
+
+            if purchase:
+                return price
+            else:
+                return self.HIGH_QUALITY_VALUE_SELLER if quality == "high" else self.LOW_QUALITY_VALUE_SELLER
+
+        def buyer_payoff(final_state):
+            quality = final_state["quality"]
+            price = final_state["price"]
+            purchase = final_state["purchase"]
+
+            if purchase:
+                car_value = self.HIGH_QUALITY_VALUE_BUYER if quality == "high" else self.LOW_QUALITY_VALUE_BUYER
+                return car_value - price
+            else:
+                return 0
+
+        def seller_observation(state, player_idx):
+            return state
+
+        def buyer_observation(state, player_idx):
+            buyer_state = state.copy()
+            if "quality" in buyer_state:
+                del buyer_state["quality"]
+            return buyer_state
+
+        self.high_quality_game = SequentialGame(
+            players=[self.seller, self.buyer],
+            initial_state={"quality": "high"},
+            state_transition=state_transition,
+            payoff_functions=[seller_payoff, buyer_payoff],
+            observation_functions=[seller_observation, buyer_observation]
+        )
+
+        self.low_quality_game = SequentialGame(
+            players=[self.seller, self.buyer],
+            initial_state={"quality": "low"},
+            state_transition=state_transition,
+            payoff_functions=[seller_payoff, buyer_payoff],
+            observation_functions=[seller_observation, buyer_observation]
+        )
+
+    def test_information_asymmetry(self):
+        """Test that information asymmetry affects outcomes"""
+        high_actions, high_final, high_payoffs = self.high_quality_game()
+        low_actions, low_final, low_payoffs = self.low_quality_game()
+
+        print("--- Market for Lemons Results ---")
+        print("High Quality Car:")
+        print(f"  Seller's asking price: ${high_actions[0]}")
+        print(f"  Buyer's decision: {'Purchase' if high_actions[1] else 'Reject'}")
+        print(f"  Seller's payoff: ${high_payoffs[0].item()}")
+        print(f"  Buyer's payoff: ${high_payoffs[1].item()}")
+
+        print("Low Quality Car:")
+        print(f"  Seller's asking price: ${low_actions[0]}")
+        print(f"  Buyer's decision: {'Purchase' if low_actions[1] else 'Reject'}")
+        print(f"  Seller's payoff: ${low_payoffs[0].item()}")
+        print(f"  Buyer's payoff: ${low_payoffs[1].item()}")
+
+        high_efficiency = sum(p.item() for p in high_payoffs)
+        low_efficiency = sum(p.item() for p in low_payoffs)
+
+        print("Market Efficiency:")
+        print(f"  High quality market: ${high_efficiency}")
+        print(f"  Low quality market: ${low_efficiency}")
+
+        # 1. If the high-quality seller asks a high price, the buyer may reject
+        if high_actions[0] == self.HIGH_PRICE:
+            if not high_actions[1]:
+                self.assertEqual(high_payoffs[0].item(), self.HIGH_QUALITY_VALUE_SELLER,
+                                "High quality seller keeps car valued at seller's valuation")
+                self.assertEqual(high_payoffs[1].item(), 0,
+                                "Buyer gets 0 payoff for not buying")
+                print("MARKET FAILURE DETECTED: High quality car not sold despite potential gains from trade")
+                potential_seller_gain = self.HIGH_PRICE - self.HIGH_QUALITY_VALUE_SELLER
+                potential_buyer_gain = self.HIGH_QUALITY_VALUE_BUYER - self.HIGH_PRICE
+                print(f"  Potential seller gain: ${potential_seller_gain}")
+                print(f"  Potential buyer gain: ${potential_buyer_gain}")
+                print(f"  Lost social welfare: ${potential_seller_gain + potential_buyer_gain}")
+
+        # 2. If a low-quality seller manages to sell, it can benefit more than its true value
+        if low_actions[1]:
+            self.assertGreater(low_actions[0], self.LOW_QUALITY_VALUE_SELLER,
+                            "Low quality seller gets more than their valuation")
+            if low_payoffs[1].item() < 0:
+                print("BUYER'S CURSE: Buyer overpaid for a low quality car")
+
+    def test_market_dynamics_with_changing_beliefs(self):
+        """Test how changing buyer beliefs affects the market"""
+        probabilities = [0.2, 0.4, 0.6, 0.8]
+        results = []
+
+        for prob_high in probabilities:
+            prob_low = 1.0 - prob_high
+
+            def updated_buyer_strategy(observation):
+                price = observation["price"]
+                expected_value = (prob_high * self.HIGH_QUALITY_VALUE_BUYER +
+                                prob_low * self.LOW_QUALITY_VALUE_BUYER)
+                return price <= expected_value
+
+            self.buyer.update_strategy(updated_buyer_strategy)
+
+            high_actions, _, high_payoffs = self.high_quality_game()
+            low_actions, _, low_payoffs = self.low_quality_game()
+
+            results.append({
+                "prob_high": prob_high,
+                "high_price": high_actions[0],
+                "high_sold": high_actions[1],
+                "low_price": low_actions[0],
+                "low_sold": low_actions[1],
+                "high_seller_payoff": high_payoffs[0].item(),
+                "high_buyer_payoff": high_payoffs[1].item(),
+                "low_seller_payoff": low_payoffs[0].item(),
+                "low_buyer_payoff": low_payoffs[1].item()
+            })
+
+        print("--- Market for Lemons with Changing Beliefs ---")
+        for result in results:
+            print(f"Buyer belief: {result['prob_high']*100}% chance of high quality")
+            print(f"  High quality car sold: {'Yes' if result['high_sold'] else 'No'}")
+            print(f"  Low quality car sold: {'Yes' if result['low_sold'] else 'No'}")
+
+        high_quality_sold = [r["high_sold"] for r in results]
+        print("High quality cars sold as buyer confidence increases:")
+        print(high_quality_sold)
+
+        # A simplistic check that more high-quality cars get sold with higher buyer confidence
+        self.assertEqual(sum(high_quality_sold[2:]), sum(high_quality_sold[0:2]) + 1,
+                 "More high quality cars should sell as buyer confidence increases")
+
+    def test_quality_signaling(self):
+        """Test how quality signaling affects the market"""
+        SIGNAL_COST = 1000
+
+        def signaling_seller_strategy(observation):
+            quality = observation["quality"]
+            if quality == "high":
+                return {"price": self.HIGH_PRICE, "signal": True}
+            else:
+                return {"price": self.MEDIUM_PRICE, "signal": False}
+
+        def signal_aware_buyer_strategy(observation):
+            price = observation["price"]
+            signal = observation.get("signal", False)
+            if signal:
+                return price <= self.HIGH_QUALITY_VALUE_BUYER
+            else:
+                return price <= self.LOW_QUALITY_VALUE_BUYER
+
+        def signal_state_transition(state, action, player_idx):
+            if player_idx == 0:
+                return {
+                    "quality": state["quality"],
+                    "price": action["price"],
+                    "signal": action["signal"]
+                }
+            else:
+                return {
+                    "quality": state["quality"],
+                    "price": state["price"],
+                    "signal": state["signal"],
+                    "purchase": action
+                }
+
+        def signal_seller_payoff(final_state):
+            quality = final_state["quality"]
+            price = final_state["price"]
+            signal = final_state["signal"]
+            purchase = final_state["purchase"]
+            cost = SIGNAL_COST if signal else 0
+
+            if purchase:
+                return price - cost
+            else:
+                car_value = self.HIGH_QUALITY_VALUE_SELLER if quality == "high" else self.LOW_QUALITY_VALUE_SELLER
+                return car_value - cost
+
+        signaling_seller = Player("Signaling Seller", signaling_seller_strategy)
+        signal_aware_buyer = Player("Signal-Aware Buyer", signal_aware_buyer_strategy)
+
+        high_quality_signaling_game = SequentialGame(
+            players=[signaling_seller, signal_aware_buyer],
+            initial_state={"quality": "high"},
+            state_transition=signal_state_transition,
+            payoff_functions=[signal_seller_payoff, self.high_quality_game.payoff_functions[1]],
+            observation_functions=[self.high_quality_game.observation_functions[0], self.high_quality_game.observation_functions[1]]
+        )
+
+        low_quality_signaling_game = SequentialGame(
+            players=[signaling_seller, signal_aware_buyer],
+            initial_state={"quality": "low"},
+            state_transition=signal_state_transition,
+            payoff_functions=[signal_seller_payoff, self.low_quality_game.payoff_functions[1]],
+            observation_functions=[self.low_quality_game.observation_functions[0], self.low_quality_game.observation_functions[1]]
+        )
+
+        high_actions, high_final, high_payoffs = high_quality_signaling_game()
+        low_actions, low_final, low_payoffs = low_quality_signaling_game()
+
+        print("--- Market for Lemons with Quality Signaling ---")
+        print("High Quality Car:")
+        print(f"  Seller's asking price: ${high_actions[0]['price']}")
+        print(f"  Seller signals quality: {'Yes' if high_actions[0]['signal'] else 'No'}")
+        print(f"  Buyer's decision: {'Purchase' if high_actions[1] else 'Reject'}")
+        print(f"  Seller's payoff: ${high_payoffs[0].item()}")
+        print(f"  Buyer's payoff: ${high_payoffs[1].item()}")
+
+        print("Low Quality Car:")
+        print(f"  Seller's asking price: ${low_actions[0]['price']}")
+        print(f"  Seller signals quality: {'Yes' if low_actions[0]['signal'] else 'No'}")
+        print(f"  Buyer's decision: {'Purchase' if low_actions[1] else 'Reject'}")
+        print(f"  Seller's payoff: ${low_payoffs[0].item()}")
+        print(f"  Buyer's payoff: ${low_payoffs[1].item()}")
+
+        # Check for separating equilibrium
+        self.assertTrue(high_actions[0]['signal'], "High quality seller should signal quality")
+        self.assertFalse(low_actions[0]['signal'], "Low quality seller should not signal quality (too costly)")
+        self.assertTrue(high_actions[1], "Buyer should purchase high quality car when seller signals")
+
+        high_efficiency = sum(p.item() for p in high_payoffs)
+        low_efficiency = sum(p.item() for p in low_payoffs)
+        print("Market Efficiency with Signaling:")
+        print(f"  High quality market: ${high_efficiency}")
+        print(f"  Low quality market: ${low_efficiency}")
+
+        if high_actions[1]:
+            print("SIGNALING RESOLVES MARKET FAILURE: High quality car sold with signaling")
+
+    def test_backward_induction_lemons(self):
+        """Test backward induction for the lemons market"""
+        high_optimal = self.high_quality_game.backward_induction()
+        low_optimal = self.low_quality_game.backward_induction()
+
+        print("--- Backward Induction for Market for Lemons ---")
+        print("High Quality Car Optimal Strategies:")
+        for (state, player_idx), action in high_optimal.items():
+            if isinstance(state, (int, str, float, bool)):
+                state_str = str(state)
+            else:
+                state_str = "complex_state"
+            print(f"  State: {state_str}, Player: {player_idx}, Action: {action}")
+
+        print("Low Quality Car Optimal Strategies:")
+        for (state, player_idx), action in low_optimal.items():
+            if isinstance(state, (int, str, float, bool)):
+                state_str = str(state)
+            else:
+                state_str = "complex_state"
+            print(f"  State: {state_str}, Player: {player_idx}, Action: {action}")
+
+        high_state_key = self.high_quality_game._state_to_key({"quality": "high"})
+        low_state_key = self.low_quality_game._state_to_key({"quality": "low"})
+
+        if (high_state_key, 0) in high_optimal:
+            high_seller_price = high_optimal[(high_state_key, 0)]
+            print(f"High quality seller optimal price: ${high_seller_price}")
+
+        if (low_state_key, 0) in low_optimal:
+            low_seller_price = low_optimal[(low_state_key, 0)]
+            print(f"Low quality seller optimal price: ${low_seller_price}")
+
+        price_options = [self.HIGH_PRICE, self.MEDIUM_PRICE, self.LOW_PRICE]
+        print("Buyers optimal responses to different prices:")
+        for price in price_options:
+            high_price_state_key = self.high_quality_game._state_to_key({"quality": "high", "price": price})
+            low_price_state_key = self.low_quality_game._state_to_key({"quality": "low", "price": price})
+
+            if (high_price_state_key, 1) in high_optimal:
+                high_buyer_response = high_optimal[(high_price_state_key, 1)]
+                print(f"  Price ${price}: {'Buy' if high_buyer_response else 'Reject'}")
+
+            if (low_price_state_key, 1) in low_optimal:
+                low_buyer_response = low_optimal[(low_price_state_key, 1)]
+                print(f"  Price ${price} (low game): {'Buy' if low_buyer_response else 'Reject'}")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
         ''')
     
     def _generate_bayesian_game_tests(self) -> str:
